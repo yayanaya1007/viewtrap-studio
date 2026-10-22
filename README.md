@@ -2,14 +2,14 @@
 
 A personal YouTube creator research dashboard with video search, channel search and analysis, and Gemini-assisted insights.
 
-## API configuration
+## Use your own API keys
 
-The server expects these environment variables:
+Open **API 설정** in the app and add your own keys:
 
-- `YOUTUBE_API_KEY` for YouTube Data API v3
-- `GEMINI_API_KEY` for Gemini
+- YouTube Data API v3
+- Gemini API
 
-Set them in your hosting provider's secret or environment-variable settings. Do not commit API keys to the repository.
+Keys are stored in browser storage scoped to the signed-in Site user. They are not committed to this repository or saved as shared server secrets. The app sends them to its server only when processing requests, and the server uses them for Google API calls without storing them. Use an account and browser profile you control, and remove keys from API settings when you no longer use this browser.
 
 ## Project layout
 

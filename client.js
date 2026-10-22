@@ -13,7 +13,7 @@
       return fallback;
     }
   };
-  const state = { view: "videos", query: "", items: [], channels: [], trackedChannels: readStoredJSON("viewtrap.trackedChannels", {}), analysisChannels: readStoredJSON("viewtrap.analysisChannels", {}), channelSnapshots: readStoredJSON("viewtrap.channelSnapshots", {}), trackedLoading: false, channel: null, analysis: null, channelVideos: [], channelVideoToken: null, channelVideoTotal: 0, channelVideosLoading: false, channelDetails: null, hiddenVideos: new Set(readStoredJSON("viewtrap.hiddenVideos", [])), hiddenChannels: new Set(readStoredJSON("viewtrap.hiddenChannels", [])), keywords: [], proPlan: null, proError: null, proLoading: false, thumbnailLoading: false, thumbnailImages: [], snapshots: readStoredJSON("viewtrap.snapshots", {}), savedData: readStoredJSON("viewtrap.savedData", {}), folders: readStoredJSON("viewtrap.folders", ["기본"]), activeFolder: "전체", loading: false, saved: new Set(readStoredJSON("viewtrap.saved", [])), status: { youtube: false, gemini: false } };
+  const state = { view: "videos", query: "", items: [], channels: [], trackedChannels: readStoredJSON("viewtrap.trackedChannels", {}), analysisChannels: readStoredJSON("viewtrap.analysisChannels", {}), channelSnapshots: readStoredJSON("viewtrap.channelSnapshots", {}), trackedLoading: false, channel: null, analysis: null, channelVideos: [], channelVideoToken: null, channelVideoTotal: 0, channelVideosLoading: false, channelDetails: null, hiddenVideos: new Set(readStoredJSON("viewtrap.hiddenVideos", [])), hiddenChannels: new Set(readStoredJSON("viewtrap.hiddenChannels", [])), keywords: [], proPlan: null, proError: null, proLoading: false, thumbnailLoading: false, thumbnailImages: [], snapshots: readStoredJSON("viewtrap.snapshots", {}), savedData: readStoredJSON("viewtrap.savedData", {}), folders: readStoredJSON("viewtrap.folders", ["기본"]), activeFolder: "전체", loading: false, saved: new Set(readStoredJSON("viewtrap.saved", [])), userScope: "anonymous", apiKeys: { youtube: "", gemini: "" }, status: { youtube: false, gemini: false } };
   let toastTimer;
   let savedRefreshing = false;
   let nextPageToken = null;
@@ -141,8 +141,25 @@
     toastTimer = setTimeout(() => element.classList.remove("show"), 2400);
   }
 
+  function apiKeyStorageName() {
+    return `viewtrap.apiKeys.v1.${state.userScope || "anonymous"}`;
+  }
+
+  function readApiKeys() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(apiKeyStorageName()) || "{}");
+      return { youtube: typeof stored.youtube === "string" ? stored.youtube : "", gemini: typeof stored.gemini === "string" ? stored.gemini : "" };
+    } catch {
+      return { youtube: "", gemini: "" };
+    }
+  }
+
+  function apiKeyHeaders() {
+    return { "x-youtube-api-key": state.apiKeys.youtube, "x-gemini-api-key": state.apiKeys.gemini };
+  }
+
   async function api(path, body) {
-    const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const response = await fetch(path, { method: "POST", headers: { "content-type": "application/json", ...apiKeyHeaders() }, body: JSON.stringify(body) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(result.message || "요청을 처리하지 못했습니다."), { code: result.code || "request_failed" });
     return result;
@@ -150,7 +167,11 @@
 
   async function refreshStatus() {
     try {
-      const response = await fetch("/api/status", { cache: "no-store" });
+      const identityResponse = await fetch("/api/status", { cache: "no-store" });
+      const identity = await identityResponse.json();
+      state.userScope = typeof identity.userScope === "string" && identity.userScope ? identity.userScope : "anonymous";
+      state.apiKeys = readApiKeys();
+      const response = await fetch("/api/status", { cache: "no-store", headers: apiKeyHeaders() });
       state.status = await response.json();
     } catch {
       state.status = { youtube: false, gemini: false };
@@ -165,8 +186,45 @@
     $("#geminiStatus").className = state.status.gemini ? "connected" : "missing";
     if (missing.length) {
       $("#integrationTitle").textContent = "실시간 데이터 연결을 마무리해 주세요";
-      $("#integrationMessage").textContent = `${missing.join("과 ")}를 Sites의 런타임 Secrets에 등록하면 이 화면에서 실제 검색과 AI 분석이 동작합니다. 키는 브라우저에 노출되지 않습니다.`;
+      $("#integrationMessage").textContent = `${missing.join("과 ")}를 API 설정에서 연결하면 실제 검색과 Gemini 분석이 동작합니다. 각 사용자는 본인 키를 따로 설정합니다.`;
     }
+  }
+
+  function openApiSettings() {
+    $("#apiSettingsStatus").textContent = `현재 계정 연결 상태 · YouTube ${state.apiKeys.youtube ? "저장됨" : "미설정"} / Gemini ${state.apiKeys.gemini ? "저장됨" : "미설정"}`;
+    $("#youtubeApiKey").value = "";
+    $("#geminiApiKey").value = "";
+    $("#apiSettingsDialog").showModal();
+  }
+
+  function saveApiSettings(event) {
+    event.preventDefault();
+    const youtube = $("#youtubeApiKey").value.trim();
+    const gemini = $("#geminiApiKey").value.trim();
+    if (!youtube && !gemini) {
+      $("#apiSettingsStatus").textContent = "새 키를 입력하거나 ‘이 브라우저의 키 삭제’를 선택해 주세요.";
+      return;
+    }
+    if (youtube) state.apiKeys.youtube = youtube;
+    if (gemini) state.apiKeys.gemini = gemini;
+    try {
+      localStorage.setItem(apiKeyStorageName(), JSON.stringify(state.apiKeys));
+    } catch {
+      $("#apiSettingsStatus").textContent = "브라우저 저장소에 저장하지 못했습니다. 저장 공간 설정을 확인해 주세요.";
+      return;
+    }
+    $("#apiSettingsDialog").close();
+    refreshStatus();
+    toast("이 계정의 API 연결 정보를 저장했습니다.");
+  }
+
+  function clearApiSettings() {
+    localStorage.removeItem(apiKeyStorageName());
+    state.apiKeys = { youtube: "", gemini: "" };
+    $("#youtubeApiKey").value = "";
+    $("#geminiApiKey").value = "";
+    $("#apiSettingsStatus").textContent = "이 브라우저에 저장된 키를 삭제했습니다.";
+    refreshStatus();
   }
 
   function loadingCard(message) {
@@ -647,6 +705,11 @@
   });
   $("#periodSelect").addEventListener("change", () => { if (state.query && state.view === "videos") doSearch(); });
   $("#bannerAction").addEventListener("click", openGuide);
+  $("#apiSettingsBtn").addEventListener("click", openApiSettings);
+  $("#apiSettingsForm").addEventListener("submit", saveApiSettings);
+  $("#closeApiSettings").addEventListener("click", () => $("#apiSettingsDialog").close());
+  $("#clearApiKeys").addEventListener("click", clearApiSettings);
+  $("#apiSettingsDialog").addEventListener("click", (event) => { if (event.target === $("#apiSettingsDialog")) $("#apiSettingsDialog").close(); });
   $("#closeModal").addEventListener("click", () => $("#modal").classList.remove("show"));
   $("#modal").addEventListener("click", (event) => { if (event.target === $("#modal")) $("#modal").classList.remove("show"); });
   $("#mobileMenu").addEventListener("click", toggleMobileNav);
@@ -656,7 +719,7 @@
 
   function openGuide() {
     $("#modalTitle").textContent = "사용법 안내";
-    $("#modalBody").innerHTML = `<h4>1. 영상 찾기</h4><p>키워드를 입력하고 <b>검색하기</b>를 누르면 최근 공개 영상과 조회수·좋아요를 확인할 수 있어요. 기간, 조회수, 좋아요 필터와 정렬을 이용해 결과를 좁혀 보세요. 영상 카드를 누르면 상세 정보가 열립니다.</p><h4>2. 채널 찾기</h4><p><b>채널 찾기</b>로 이동해 채널 이름이나 주제를 검색하세요. 결과에서 구독자 수, 누적 조회수, 업로드 수 등 공개 지표를 비교할 수 있어요.</p><h4>3. 채널 분석</h4><p><b>채널 분석</b>에서 채널을 검색한 뒤 원하는 결과의 <b>Gemini 분석</b>을 누르세요. 공개 채널 정보와 최근 영상 내용을 바탕으로 반복 주제와 콘텐츠 아이디어를 요약합니다.</p><div class="notice">실시간 검색은 YouTube 공개 API를 사용하며, Gemini 분석은 설정된 Gemini API를 호출합니다. 제공되지 않는 비공개 지표는 볼 수 없고 API 할당량이나 연결 상태에 따라 결과가 제한될 수 있어요.</div>`;
+    $("#modalBody").innerHTML = `<h4>1. 먼저 API 키 연결</h4><p>상단의 <b>API 설정</b>을 열고 본인 Google 계정에서 발급한 YouTube Data API v3 키와 Gemini API 키를 저장하세요. 허용된 사용자는 각자 자기 계정 키를 입력해야 합니다.</p><h4>2. 영상 찾기</h4><p>키워드를 입력하고 <b>검색하기</b>를 누르면 최근 공개 영상과 조회수·좋아요를 확인할 수 있어요. 기간, 조회수, 좋아요 필터와 정렬을 이용해 결과를 좁혀 보세요. 영상 카드를 누르면 상세 정보가 열립니다.</p><h4>3. 채널 찾기와 분석</h4><p><b>채널 찾기</b>에서 이름이나 주제를 검색하고 공개 지표를 비교하세요. 관심 채널은 <b>채널 분석</b>에 추가해 영상을 모아 보고, Gemini 분석으로 반복 주제와 아이디어를 확인할 수 있어요.</p><div class="notice">키는 로그인한 사용자 계정별 브라우저 저장소에 보관되고, 요청을 처리할 때 사이트 서버를 거쳐 Google API로 전달됩니다. 서버의 런타임 Secrets에는 저장하지 않습니다. 비공개 YouTube 지표는 볼 수 없으며 Google API 사용량은 각자 키의 한도를 사용합니다.</div>`;
     $("#modal").classList.add("show");
   }
 

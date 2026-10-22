@@ -315,41 +315,51 @@ async function generateThumbnail(body, env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const readUserKey = (header) => {
+      const value = (request.headers.get(header) || "").trim();
+      return value.length <= 256 ? value : "";
+    };
+    const apiEnv = {
+      YOUTUBE_API_KEY: readUserKey("x-youtube-api-key"),
+      GEMINI_API_KEY: readUserKey("x-gemini-api-key"),
+      GEMINI_MODEL: env.GEMINI_MODEL,
+      GEMINI_IMAGE_MODEL: env.GEMINI_IMAGE_MODEL,
+    };
     if (request.method === "GET" && url.pathname === "/") return new Response(page, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
     if (request.method === "GET" && url.pathname === "/client.js") return new Response(client, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
-    if (request.method === "GET" && url.pathname === "/api/status") return json({ youtube: Boolean(env.YOUTUBE_API_KEY), gemini: Boolean(env.GEMINI_API_KEY) });
+    if (request.method === "GET" && url.pathname === "/api/status") return json({ youtube: Boolean(apiEnv.YOUTUBE_API_KEY), gemini: Boolean(apiEnv.GEMINI_API_KEY), userScope: request.headers.get("oai-authenticated-user-id") || "anonymous" });
     try {
       const body = await readBody(request);
       if (request.method === "POST" && url.pathname === "/api/search") {
         const query = String(body.query || "").trim().slice(0, 120);
         if (!query) throw Object.assign(new Error("검색어를 입력해 주세요."), { code: "query_required" });
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(body.type === "channels" ? await searchChannels(query, body, env) : await searchVideos(query, body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(body.type === "channels" ? await searchChannels(query, body, apiEnv) : await searchVideos(query, body, apiEnv));
       }
       if (request.method === "POST" && url.pathname === "/api/resolve-channel") {
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(await resolveChannel(body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(await resolveChannel(body, apiEnv));
       }
       if (request.method === "POST" && url.pathname === "/api/channel-details") {
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(await channelDetails(body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(await channelDetails(body, apiEnv));
       }
       if (request.method === "POST" && url.pathname === "/api/channel-videos") {
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(await channelVideos(body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(await channelVideos(body, apiEnv));
       }
       if (request.method === "POST" && url.pathname === "/api/tracked-channels") {
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(await refreshTrackedChannels(body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(await refreshTrackedChannels(body, apiEnv));
       }
       if (request.method === "POST" && url.pathname === "/api/refresh-videos") {
-        if (!env.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 아직 등록되지 않았습니다."), { code: "youtube_key_missing" });
-        return json(await refreshSavedVideos(body, env));
+        if (!apiEnv.YOUTUBE_API_KEY) throw Object.assign(new Error("YouTube Data API 키가 API 설정에 등록되지 않았습니다."), { code: "youtube_key_missing" });
+        return json(await refreshSavedVideos(body, apiEnv));
       }
-      if (request.method === "POST" && url.pathname === "/api/analyze") return json(await analyzeChannel(body, env));
-      if (request.method === "POST" && url.pathname === "/api/keywords") return json(await suggestKeywords(body, env));
-      if (request.method === "POST" && url.pathname === "/api/professional") return json(await professionalPlan(body, env));
-      if (request.method === "POST" && url.pathname === "/api/thumbnail") return json(await generateThumbnail(body, env));
+      if (request.method === "POST" && url.pathname === "/api/analyze") return json(await analyzeChannel(body, apiEnv));
+      if (request.method === "POST" && url.pathname === "/api/keywords") return json(await suggestKeywords(body, apiEnv));
+      if (request.method === "POST" && url.pathname === "/api/professional") return json(await professionalPlan(body, apiEnv));
+      if (request.method === "POST" && url.pathname === "/api/thumbnail") return json(await generateThumbnail(body, apiEnv));
       return json({ code: "not_found", message: "요청한 주소를 찾을 수 없습니다." }, 404);
     } catch (error) {
       const result = safeError(error);
